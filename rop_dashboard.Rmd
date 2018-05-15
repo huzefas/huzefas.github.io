@@ -1,0 +1,772 @@
+---
+title: "ROP Prediction Dashoard"
+output: 
+  flexdashboard::flex_dashboard:
+runtime: shiny
+
+---
+<style type="text/css">
+
+.chart-title {
+  border-bottom: 1px solid #d7d7d7;
+  color: #666;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 7px 10px 4px;
+}
+</style>
+
+```{r setup, include=FALSE}
+require(flexdashboard)
+require(dplyr)
+require(plotly)
+require(ggthemes)
+require(ggrepel)
+
+
+#setwd("~/Ravneet/ROP_visuals")
+
+
+gg.gauge <- function(pos,breaks, cir_points) {
+  pos <- round(pos, 0)
+  breaks <- round(breaks, 0)
+  require(ggplot2)
+  get.poly <- function(a,b,r1=0.5,r2=1.0) {
+    th.start <- pi*(1-a/cir_points)
+    th.end   <- pi*(1-b/cir_points)
+    th       <- seq(th.start,th.end, length = cir_points)
+    x        <- c(r1*cos(th),rev(r2*cos(th)))
+    y        <- c(r1*sin(th),rev(r2*sin(th)))
+    return(data.frame(x,y))
+  }
+  ggplot()+ 
+    geom_polygon(data=get.poly(breaks[1],breaks[2]),aes(x,y),fill="gold")+
+    geom_polygon(data=get.poly(breaks[2],breaks[3]),aes(x,y),fill="forestgreen")+
+    geom_polygon(data=get.poly(breaks[3],breaks[4]),aes(x,y),fill="red")+
+    geom_polygon(data=get.poly(pos-1,pos+1, 0.2),aes(x,y))+
+    geom_text(data=as.data.frame(breaks), size=5, fontface="bold", vjust=0.5, hjust =0.75,
+              aes(x=1.1*cos(pi*(1-breaks/cir_points)),y=1.1*sin(pi*(1-breaks/cir_points)),label=paste0(breaks)))+
+    annotate("text",x=0,y=0,label=pos,vjust=0,size=7,fontface="bold")+
+    coord_fixed()+
+    theme_bw()+
+    theme(axis.text=element_blank(),
+          axis.title=element_blank(),
+          axis.ticks=element_blank(),
+          panel.grid=element_blank(),
+          panel.border=element_blank(),
+          plot.margin = unit(c(1,1,1,1), "pt")
+          ) 
+}
+
+
+
+bullet.graph <- function(bg.data){
+  
+  # compute max and half for the ticks and labels
+  max.bg <- max(bg.data$high)
+  mid.bg <- max.bg / 2
+
+  gg <- ggplot(bg.data) 
+  gg <- gg + geom_bar(aes(measure, high, label = high),  fill="forestgreen", stat="identity", width=0.2) 
+  gg <- gg + geom_bar(aes(measure, mean, label = mean),  fill="gold", stat="identity", width=0.2) 
+  gg <- gg + geom_bar(aes(measure, low, label = low),   fill="red", stat="identity", width=0.2) 
+  gg <- gg + geom_bar(aes(measure, value, label = value), fill="black",  stat="identity", width=0.1) 
+  #gg <- gg + geom_errorbar(aes(y=target, x=measure, ymin=target, ymax=target), color="red", width=0.45) 
+  #gg <- gg + geom_point(aes(measure, target), colour="red", size=2.5) +
+  gg <- gg + geom_text(aes(measure, value, label=value, vjust =-0.75, size=8,fontface="bold")) 
+  gg <- gg + geom_text(aes(measure, high, label = high, hjust =-0.75, vjust =1, size=8,fontface="bold")) 
+  gg <- gg + geom_text(aes(measure, mean, label = mean, hjust =-0.75, vjust =1, size=8,fontface="bold", position = "stack")) 
+  gg <- gg + geom_text(aes(measure, low, label = low, hjust =-0.75, vjust =1, size=8,fontface="bold"))
+  #gg <- gg + geom_text(position = "stack", hjust =-0.75, size=8,fontface="bold")
+  #gg <- gg + scale_y_continuous(breaks=seq(0,max.bg,25), expand = c(0,0))
+  gg <- gg + scale_x_discrete(expand=c(0,0))
+  gg <- gg + theme_void()+ theme(legend.position="none")
+  gg <- gg + ggtitle("Bit Life Estimation")
+    #theme_economist()
+  #gg <- gg + coord_flip()
+  # gg <- gg + theme(axis.text.x=element_blank(),
+  #                  axis.title.x=element_blank(),
+  #                  axis.line.y=element_blank(),
+  #                  axis.line.x=element_blank(),
+  #                  axis.text.y=element_text(hjust = -0.1,color="black"),
+  #                  axis.ticks.y=element_blank(),
+  #                  axis.title.y=element_blank(),
+  #                  legend.position="none",
+  #                  panel.background=element_blank(),
+  #                  panel.border=element_blank(),
+  #                  panel.grid.major=element_blank(),
+  #                  panel.grid.minor=element_blank(),
+  #                  plot.background=element_blank(),
+  #                  plot.margin = unit(c(0,0,0,0), "pt"))
+
+  return(gg)
+
+}
+
+df <- read.csv("midtest.csv")
+df %>% select(md, formation) %>% group_by(formation) %>% slice(1) -> df_fm_md
+
+# df %>% 
+#   select(md,rop,fm_ma100_delta_dep_rop,fm_ma100_delta_dep_rop_for,prediction) %>% 
+#   arrange(md) -> df
+
+
+```
+
+ROP Prediction
+=====================================  
+
+
+Inputs {.sidebar data-width=200}
+-----------------------------------------------------------------------
+```{r}
+sliderInput(inputId = "currentmd", 
+            label = "Choose MD range", 
+              #value = c(ceiling(df$md[1]/10)*10, floor(df$md[nrow(df)]/10)*10) , min = ceiling(df$md[1]/10)*10, #max = floor(df$md[nrow(df)]/10)*10-100
+            min = min(df$md),
+            max = max(df$md),
+            value = c(min(df$md), max(df$md))
+            )
+```
+
+
+```{r}
+
+renderPlot({
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+    bitlife <- dfii$bitlife_est[dfii$md == input$currentmd[2]]
+    
+    bitlife_df <- data.frame(
+                  measure=c("BitLife Estimate"),
+                  high=c(100),
+                  mean=c(50),
+                  low=c(30), 
+                  target=c(80),
+                  value=c(bitlife)
+    )
+    
+    
+    bullet.graph(bitlife_df)
+    
+  })
+
+
+```
+
+
+
+
+Column  {data-width=250}
+-----------------------------------------------------------------------
+
+### Weight on Bit (klbs)
+
+```{r}
+
+
+renderPlot({
+df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+wob_val <- dfii$wob[dfii$md == input$currentmd[2]]
+lwr_limit <- 0
+upr_limit <- 100
+opt_lwr <- dfii$wob_lwr[dfii$md == input$currentmd[2]]
+opt_upr <- dfii$wob_upr[dfii$md == input$currentmd[2]]
+                        
+breaks <- c(lwr_limit,opt_lwr, opt_upr, upr_limit)
+gg.gauge(wob_val,breaks, 100)
+})
+
+```
+
+
+### Drill-Bit RPM
+```{r}
+
+renderPlot({
+df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+dbrpm_val <- dfii$dbrpm0_ma10[dfii$md == input$currentmd[2]]
+lwr_limit <- 0
+upr_limit <- 500
+opt_lwr <- dfii$dbrpm_lwr[dfii$md == input$currentmd[2]]
+opt_upr <- dfii$dbrpm_upr[dfii$md == input$currentmd[2]]
+                        
+breaks <- c(lwr_limit,opt_lwr, opt_upr, upr_limit)
+gg.gauge(dbrpm_val,breaks, upr_limit)
+})
+
+
+```
+
+### Flow Rate (gpm)
+```{r}
+
+renderPlot({
+df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+flow_val <- dfii$pumpflow[dfii$md == input$currentmd[2]]
+lwr_limit <- 0
+upr_limit <- 1000
+opt_lwr <- dfii$pumpflow_lwr[dfii$md == input$currentmd[2]]
+opt_upr <- dfii$pumpflow_upr[dfii$md == input$currentmd[2]]
+                        
+breaks <- c(lwr_limit,opt_lwr, opt_upr, upr_limit)
+gg.gauge(flow_val,breaks, upr_limit)
+})
+
+
+```
+
+
+
+
+Column  {data-width=200}
+-----------------------------------------------------------------------
+
+### Weight on Bit (Mean) {.value-box}
+
+```{r}
+renderValueBox({
+
+  df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+  wob_val <- round(mean(dfii$wob, digits = 2))
+
+  valueBox(
+    value = wob_val
+  )
+})
+
+```
+
+### Weight on Bit - Graph 
+```{r}
+
+
+renderPlot({
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+    dfii$wob_ma10[dfii$md > input$currentmd[2]] <- NaN
+    dfii$wob_lwr[dfii$md > input$currentmd[2]] <- NaN
+    dfii$wob_upr[dfii$md > input$currentmd[2]] <- NaN
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+p2=ggplot(data=dfii,aes(x=md)) +
+      geom_line(mapping = aes(y = wob_ma10), colour = "red") +
+      geom_line(mapping = aes(y = wob_lwr), color = "black", linetype = 2)+
+      geom_line(mapping = aes(y = wob_upr), color = "black", linetype = 2)+
+      geom_ribbon(aes(ymin = wob_lwr, ymax = wob_upr, fill = formation), alpha = 0.2, linetype = 2, show.legend = FALSE) +
+      geom_vline(xintercept = input$currentmd[2])+
+      xlab("MD (ft)") +
+      ylab("WOB")+
+      coord_flip() +
+      scale_x_reverse()+
+      theme_economist()
+
+p2 #<- ggplotly(p2)
+
+  })
+```
+
+Column  {data-width=200}
+-----------------------------------------------------------------------
+
+### Drill Bit RPM (Mean) {.value-box}
+
+```{r}
+renderValueBox({
+
+  df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+  dbrpm_val <- round(mean(dfii$dbrpm0_ma10, digits = 2))
+  valueBox(
+    "Drill Bit RPM (Mean)",
+    value = dbrpm_val
+  )
+})
+
+```
+
+### Drill Bit RPM - Graph 
+
+```{r}
+
+renderPlot({
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+    dfii$dbrpm0_ma10[dfii$md > input$currentmd[2]] <- NaN
+    dfii$dbrpm_lwr[dfii$md > input$currentmd[2]] <- NaN
+    dfii$dbrpm_upr[dfii$md > input$currentmd[2]] <- NaN
+
+    #df %>% filter(md<=input$startmd+100) -> dfii
+    
+    p3=ggplot(data=dfii,aes(x=md)) +
+      geom_line(mapping = aes(y = dbrpm0_ma10), colour = "red") +
+      geom_line(mapping = aes(y = dbrpm_lwr), color = "black", linetype = 2)+
+      geom_line(mapping = aes(y = dbrpm_upr), color = "black", linetype = 2)+
+      geom_ribbon(aes(ymin = dbrpm_lwr, ymax = dbrpm_upr, fill = formation), alpha = 0.2, linetype = 2, show.legend = FALSE) +
+      geom_vline(xintercept = input$currentmd[2])+
+      xlab("MD (ft)") +
+      ylab("Drill-Bit RPM")+
+      coord_flip() +
+      scale_x_reverse()+
+      theme_economist()
+
+    p3 #<- ggplotly(p3)
+    
+  })
+
+
+```
+
+Column  {data-width=200}
+-----------------------------------------------------------------------
+
+### Flow Rate (Mean) {.value-box}
+
+```{r}
+renderValueBox({
+
+  df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]) -> dfii
+  flow_val <- round(mean(dfii$pumpflow_ma10, digits = 2))
+
+  valueBox(
+    value = flow_val
+  )
+})
+
+```
+
+### Flow Rate - Graph 
+
+
+```{r}
+
+renderPlot({
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+    dfii$pumpflow_ma10[dfii$md > input$currentmd[2]] <- NaN
+    dfii$pumpflow_lwr[dfii$md > input$currentmd[2]] <- NaN
+    dfii$pumpflow_upr[dfii$md > input$currentmd[2]] <- NaN
+    #df %>% filter(md<=input$startmd+100) -> dfii
+    
+    p3=ggplot(data=dfii,aes(x=md)) +
+      geom_line(mapping = aes(y = pumpflow_ma10), colour = "red") +
+      geom_line(mapping = aes(y = pumpflow_lwr), color = "black", linetype = 2)+
+      geom_line(mapping = aes(y = pumpflow_upr), color = "black", linetype = 2)+
+      geom_ribbon(aes(ymin = pumpflow_lwr, ymax = pumpflow_upr, fill = formation), alpha = 0.2, linetype = 2, show.legend = FALSE) +
+      #scale_alpha(guide = 'none')+
+      geom_vline(xintercept = input$currentmd[2])+
+      xlab("MD (ft)") +
+      ylab("Flow Rate")+
+      coord_flip() +
+      scale_x_reverse()+
+      theme_economist()
+
+    p3 # <- ggplotly(p3)
+    
+  })
+
+
+```
+
+Column {}
+-----------------------------------------------------------------------
+
+### Rate of Penetration (Mean) {.value-box}
+
+```{r}
+renderValueBox({
+
+  df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+  rop_val <- round(mean(dfii$fm_ma10_delta_dep_rop, digits = 2))
+
+  valueBox(
+    value = rop_val
+  )
+})
+
+```
+
+### Rate of Penetration - Prediction vs Actual
+
+```{r}
+
+# currentmd <- reactive(as.numeric(input$currentmd))
+# df %>% filter(md>=currentmd & md<=currentmd+500) -> dfii
+#     #dfii$rop[401:500] <- NaN
+#     dfii$fm_ma100_delta_dep_rop_for[401:500] <- NaN
+
+renderPlot({
+    #df %>% filter(md>=input$currentmd & md<=input$currentmd+500) -> dfii
+    #df %>% filter(md<=input$currentmd+100) -> dfii
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+    dfii %>% mutate(lwr = prediction10 - rmse10, upr = prediction10 + rmse10) -> dfii
+    
+    df_fm_md %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) ->df_fm_md_filt
+    #levels(dfii$formation)[levels(dfii$formation)=="LAMAR (DELAWARE GP)"] <- "LAMAR-DEL"
+    #levels(dfii$formation)[levels(dfii$formation)=="1ST BONE SPRING SAND"] <- "1st BoneSand"
+    #levels(dfii$formation)[levels(dfii$formation)=="2ND BONE SPRING LIME"] <- "2nd BoneLime"
+    levels(dfii$formation)[levels(dfii$formation)=="2ND BONE SPRING SAND"] <- "2nd BoneSand"
+    #levels(dfii$formation)[levels(dfii$formation)=="3RD BONE SPRING LIME"] <- "3rd BoneLime"
+    #levels(dfii$formation)[levels(dfii$formation)=="BONE SPRING/AVALON"] <- "Bone Spr/Ava"
+    #dfii$rop[401:500] <- NaN
+    #dfii$fm_ma100_delta_dep_rop_for[401:500] <- NaN
+    dfii$fm_ma10_delta_dep_rop_for[dfii$md > input$currentmd[2]] <- NaN
+    # ymin <- min(min(df$fm_ma100_delta_dep_rop_for),min(df$prediction))
+    # ymax <- max(max(df$fm_ma100_delta_dep_rop_for),max(df$prediction))
+    # ratio.display <- 2/6
+    # ratio.values <- (max(df$md)-min(df$md))/(ymax-ymin)
+    p1<-ggplot(data=dfii,aes(x=md)) +
+      #geom_line(mapping = aes(y = rop), colour = "black") +
+      geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "gray30", alpha = 0.2) +
+      geom_line(mapping = aes(y = fm_ma10_delta_dep_rop_for, fill = "Actual ROP"), color = "red")+
+      geom_line(mapping = aes(y = prediction10, fill = "predicted ROP"), colour = "blue")+
+      scale_color_discrete(name = "RunCharts", labels = c("Prediction", "Actual"))+
+      geom_rug(sides = "l", aes(color = formation), show.legend = TRUE)+
+      scale_color_hue("Formation")+
+      scale_fill_manual(
+            "Line plots", values=rep(1,2),
+            guide=guide_legend(override.aes = list(colour=c("red", "blue")))
+      )+
+      geom_text_repel(data= df_fm_md_filt, mapping=aes(x=md, y=0, label=formation), size=3, fontface=2) +
+      #geom_text(df_fm_md, aes(x = md, y = 0))+
+      geom_vline(xintercept = input$currentmd[2])+
+      xlab("MD (ft)") +
+      ylab("ROP (ft/hr)")+
+      coord_flip() +
+      scale_x_reverse()+
+      theme_economist()+
+      theme(legend.direction = "vertical", 
+        legend.position = "right"
+        )
+
+    
+    p1 #<- ggplotly(p1)
+    
+})
+
+```
+
+
+
+BY RUN
+===================================== 
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+selectInput("run", label = "Run No:",
+            choices = c(unique(df$RunNo)), selected = df$RunNo[1])
+
+```
+
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Weight on Bit
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+    df_run <- df %>% filter(RunNo == input$run)
+
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    #df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+100) -> dfii
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+  p2=ggplot(data=df_run,aes(x=md)) +
+      geom_line(mapping = aes(y = wob_ma10), colour = "red") +
+      geom_vline(xintercept = df_run$md[(nrow(df_run)-99)])+
+      xlab("MD (ft)") +
+      ylab("WOB")+
+      coord_flip() +
+      scale_x_reverse()
+
+  p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Drill String RPM 
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+    df_run <- df %>% filter(RunNo == input$run)
+
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    #df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+100) -> dfii
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+    p2=ggplot(data=df_run,aes(x=md)) +
+      geom_line(mapping = aes(y = dbrpm0_ma10), colour = "red") +
+      geom_vline(xintercept = df_run$md[(nrow(df_run)-99)])+
+      xlab("MD (ft)") +
+      ylab("WOB")+
+      coord_flip() +
+      scale_x_reverse()
+
+    p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Pump Flow Rate 
+
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+    df_run <- df %>% filter(RunNo == input$run)
+
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    #df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+100) -> dfii
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+    p2=ggplot(data=df_run,aes(x=md)) +
+      geom_line(mapping = aes(y = pumpflow_ma10), colour = "red") +
+      geom_vline(xintercept = df_run$md[(nrow(df_run)-99)])+
+      xlab("MD (ft)") +
+      ylab("WOB")+
+      coord_flip() +
+      scale_x_reverse()
+
+    p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+### Rate of Penetration - Prediction vs Actual
+
+```{r}
+
+renderPlot({
+    
+    df_run <- df %>% filter(RunNo == input$run)
+    df_run %>% mutate(lwr = prediction10 - 30, upr = prediction10 + 30) -> df_run
+    
+    #levels(df_run$formation)[levels(df_run$formation)=="LAMAR (DELAWARE GP)"] <- "LAMAR-DEL"
+    #levels(df_run$formation)[levels(df_run$formation)=="1ST BONE SPRING SAND"] <- "1st BoneSand"
+    #levels(df_run$formation)[levels(df_run$formation)=="2ND BONE SPRING LIME"] <- "2nd BoneLime"
+    levels(df_run$formation)[levels(df_run$formation)=="2ND BONE SPRING SAND"] <- "2nd BoneSand"
+    #levels(df_run$formation)[levels(df_run$formation)=="3RD BONE SPRING LIME"] <- "3rd BoneLime"
+    #levels(df_run$formation)[levels(df_run$formation)=="BONE SPRING/AVALON"] <- "Bone Spr/Ava"
+    #df_run$rop[401:500] <- NaN
+    
+    df_run$fm_ma100_delta_dep_rop_for[(nrow(df_run)-99) : nrow(df_run)] <- NaN
+    
+    # ymin <- min(min(df$fm_ma100_delta_dep_rop_for),min(df$prediction))
+    # ymax <- max(max(df$fm_ma100_delta_dep_rop_for),max(df$prediction))
+    # ratio.display <- 2/6
+    # ratio.values <- (max(df$md)-min(df$md))/(ymax-ymin)
+    p1<-ggplot(data=df_run,aes(x=md)) +
+      geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "gray30", alpha = 0.2) +
+      geom_line(mapping = aes(y = fm_ma100_delta_dep_rop_for), colour = "red") +
+      geom_line(mapping = aes(y = prediction10), colour = "blue") +
+      geom_rug(aes(color = formation ))+
+      geom_vline(xintercept = df_run$md[(nrow(df_run)-99)])+
+      xlab("MD (ft)") +
+      ylab("ROP (ft/hr)")+ 
+      coord_flip() +
+      scale_x_reverse() 
+      
+    
+    p1 #<- ggplotly(p1) 
+    
+})
+
+```
+
+BY Formation
+===================================== 
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+selectInput("formation", label = "Choose Formation:",
+            choices = c(levels(df$formation)), selected = df$formation[1])
+
+```
+
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Weight on Bit
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+  df_formation <- df %>% filter(formation == input$formation)
+
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    #df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+100) -> dfii
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+  p2=ggplot(data=df_formation,aes(x=md)) +
+      geom_line(mapping = aes(y = wob_ma10), colour = "red") +
+      #geom_line(mapping = aes(y = wob_mean), color = "black")+
+      #geom_line(mapping = aes(y = wob_max), color = "black")+
+      geom_vline(xintercept = df_formation$md[(nrow(df_formation)-100)])+
+      xlab("MD (ft)") +
+      ylab("WOB")+
+      coord_flip() +
+      scale_x_reverse()
+
+  p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Drill-Bit RPM 
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+  df_formation <- df %>% filter(formation == input$formation)
+   
+
+  p2=ggplot(data=df_formation,aes(x=md)) +
+      geom_line(mapping = aes(y = dbrpm0_ma10), colour = "red") +
+      geom_vline(xintercept = df_formation$md[(nrow(df_formation)-100)])+
+      xlab("MD (ft)") +
+      ylab("Drill-Bit RPM")+
+      coord_flip() +
+      scale_x_reverse()
+
+  p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Pump Flow Rate 
+
+```{r}
+#num <- reactive(as.integer(input$run))
+renderPlot({
+  
+  df_formation <- df %>% filter(formation == input$formation)
+
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    #df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+100) -> dfii
+    #wob_val <- round(mean(dfii$fm_ma100_delta_dep_wob, digits = 2))
+
+  p2=ggplot(data=df_formation,aes(x=md)) +
+      geom_line(mapping = aes(y = pumpflow_ma10), colour = "red") +
+      geom_vline(xintercept = df_formation$md[(nrow(df_formation)-100)])+
+      xlab("MD (ft)") +
+      ylab("Pumpflow")+
+      coord_flip() +
+      scale_x_reverse()
+
+  p2 #<- ggplotly(p2)
+
+  })
+
+
+```
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+### Rate of Penetration - Prediction vs Actual
+
+```{r}
+
+renderPlot({
+    
+    df_formation <- df %>% filter(formation == input$formation)
+    
+    df_formation %>% mutate(lwr = prediction10 - 30, upr = prediction10 + 30) -> df_formation
+    
+    levels(df_formation$formation)[levels(df_formation$formation)=="LAMAR (DELAWARE GP)"] <- "LAMAR-DEL"
+    levels(df_formation$formation)[levels(df_formation$formation)=="1ST BONE SPRING SAND"] <- "1st BoneSand"
+    levels(df_formation$formation)[levels(df_formation$formation)=="2ND BONE SPRING LIME"] <- "2nd BoneLime"
+    levels(df_formation$formation)[levels(df_formation$formation)=="2ND BONE SPRING SAND"] <- "2nd BoneSand"
+    levels(df_formation$formation)[levels(df_formation$formation)=="3RD BONE SPRING LIME"] <- "3rd BoneLime"
+    levels(df_formation$formation)[levels(df_formation$formation)=="BONE SPRING/AVALON"] <- "Bone Spr/Ava"
+    #df_formation$rop[401:500] <- NaN
+    #df_formation$fm_ma100_delta_dep_rop_for[401:500] <- NaN
+
+    df_formation$fm_ma100_delta_dep_rop_for[(nrow(df_formation)-99) : nrow(df_formation)] <- NaN
+    # ymin <- min(min(df$fm_ma100_delta_dep_rop_for),min(df$prediction))
+    # ymax <- max(max(df$fm_ma100_delta_dep_rop_for),max(df$prediction))
+    # ratio.display <- 2/6
+    # ratio.values <- (max(df$md)-min(df$md))/(ymax-ymin)
+    p1<-ggplot(data=df_formation,aes(x=md)) +
+      #geom_line(mapping = aes(y = rop), colour = "black") +
+      geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "gray30", alpha = 0.2) +
+      geom_line(mapping = aes(y = fm_ma100_delta_dep_rop_for, colour = formation)) +
+      geom_line(mapping = aes(y = prediction10), colour = "blue") +
+      geom_vline(xintercept = df_formation$md[(nrow(df_formation)-100)])+
+      xlab("MD (ft)") +
+      ylab("ROP (ft/hr)") +
+      coord_flip() +
+      scale_x_reverse()+
+      geom_rug(sides = "l", aes(color = formation))
+
+    p1
+    
+    #p1 <- ggplotly(p1)
+    
+})
+
+```
+
+
+Column {data-width=200}
+-----------------------------------------------------------------------
+
+### Bit Life Estimation 
+
+```{r}
+
+renderPlot({
+    #df %>% filter(md>=input$startmd & md<=input$startmd+500) -> dfii
+    df %>% filter(md>=input$currentmd[1] & md<=input$currentmd[2]+10) -> dfii
+    dfii$bitlife_est[dfii$md > input$currentmd[2]] <- NaN
+    #dfii$pumpflow_lwr[dfii$md > input$currentmd[2]] <- NaN
+    #dfii$pumpflow_upr[dfii$md > input$currentmd[2]] <- NaN
+    #df %>% filter(md<=input$startmd+100) -> dfii
+    
+    p3=ggplot(data=dfii,aes(x=md)) +
+      geom_line(mapping = aes(y = bitlife_est), colour = "red") +
+      #geom_line(mapping = aes(y = pumpflow_lwr), color = "black", linetype = 2)+
+      #geom_line(mapping = aes(y = pumpflow_upr), color = "black", linetype = 2)+
+      #geom_ribbon(aes(ymin = pumpflow_lwr, ymax = pumpflow_upr, fill = formation), alpha = 0.2, linetype = 2, show.legend = FALSE) +
+      #scale_alpha(guide = 'none')+
+      geom_vline(xintercept = input$currentmd[2])+
+      xlab("MD (ft)") +
+      ylab("Bit Life Estimation")+
+      coord_flip() +
+      scale_x_reverse()+
+      scale_y_reverse()+
+      theme_economist()
+
+    p3 # <- ggplotly(p3)
+    
+  })
+
+
+```
